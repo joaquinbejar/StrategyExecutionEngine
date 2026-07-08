@@ -42,7 +42,7 @@ pub enum OrderType {
     Limit,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Side {
     Buy,
     Sell,

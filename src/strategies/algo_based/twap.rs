@@ -51,7 +51,7 @@ use std::vec::Vec;
 pub struct TWAPStrategy;
 
 impl OrderSplitStrategy for TWAPStrategy {
-    fn split(&self, parent_order: &ParentOrder) -> Vec<ChildOrder> {
+    fn split(&self, _parent_order: &ParentOrder) -> Vec<ChildOrder> {
         // Implement the TWAP splitting logic here
         vec![]
     }

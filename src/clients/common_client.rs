@@ -47,7 +47,10 @@ pub struct MessagingClientFactory;
 impl MessagingClientFactory {
     pub fn create_client(client_type: ClientType) -> Box<dyn MessagingClient> {
         match client_type {
-            ClientType::Kafka => Box::new(KafkaClient::new()),
+            ClientType::Kafka => Box::new(KafkaClient::new(
+                "localhost:9092".to_string(),  // 默认 broker
+                "default-group".to_string()    // 默认 group_id
+            )),
             ClientType::Redis => Box::new(RedisClient::new()),
             ClientType::Nats => Box::new(NatsClient::new()),
             ClientType::RabbitMQ => Box::new(RabbitMQClient::new()),

@@ -25,5 +25,10 @@ THE SOFTWARE.
    Email: jb@taunais.com
    Date: 25/5/24
 ******************************************************************************/
-mod adverse_selection;
-mod liquidity_seeking;
+
+pub mod adverse_selection;
+pub mod adverse_selection_split;
+pub mod adverse_selection_impl;
+
+// Use specific exports instead of glob exports to avoid ambiguity
+pub use adverse_selection_impl::{AdverseSelectionStrategy, AdverseSelectionConfig, MarketState};

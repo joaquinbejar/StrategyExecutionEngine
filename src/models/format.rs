@@ -28,7 +28,7 @@ THE SOFTWARE.
 
 use crate::{ChildOrder, Futures, Options, Order, ParentOrder, Spot, Swap, CFD};
 use serde::Serialize;
-use std::fmt::{Formatter, Result as FmtResult, Write};
+use std::fmt::{Formatter, Result as FmtResult};
 
 fn format_helper<T: Serialize>(
     serializable: &T,

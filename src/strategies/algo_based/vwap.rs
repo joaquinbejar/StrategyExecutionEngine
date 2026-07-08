@@ -51,7 +51,7 @@ use crate::strategies::common_strategies::OrderSplitStrategy;
 pub struct VWAPStrategy;
 
 impl OrderSplitStrategy for VWAPStrategy {
-    fn split(&self, parent_order: &ParentOrder) -> Vec<ChildOrder> {
+    fn split(&self, _parent_order: &ParentOrder) -> Vec<ChildOrder> {
         // Implement the VWAP splitting logic here
         vec![]
     }

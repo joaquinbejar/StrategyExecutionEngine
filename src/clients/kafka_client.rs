@@ -29,14 +29,13 @@ THE SOFTWARE.
 use crate::MessagingClient;
 
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::message::Message;
+use rdkafka::consumer::{StreamConsumer, Consumer};
 use rdkafka::producer::{BaseProducer, BaseRecord};
-use tokio::time::{sleep, Duration};
+use rdkafka::Message;
 
 pub struct KafkaClient {
     producer: BaseProducer,
-    consumer: BaseConsumer,
+    consumer: StreamConsumer,
     brokers: String,
     group_id: String,
 }
@@ -70,27 +69,33 @@ impl KafkaClient {
 
 impl MessagingClient for KafkaClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
-        let record = BaseRecord::to(topic).payload(message);
-        self.producer.send(record).map_err(|e| e.to_string())?;
+        let record: BaseRecord<'_, str, str> = BaseRecord::to(topic).payload(message);
+        self.producer.send(record).map_err(|(err, _)| err.to_string())?;
         Ok(())
     }
 
-    async fn consume(&self, topic: &str) -> Result<String, String> {
-        self.consumer
-            .subscribe(&[topic])
-            .map_err(|e| e.to_string())?;
-
-        for _ in 0..5 {
-            match self.consumer.poll(Duration::from_secs(1)) {
-                Some(Ok(m)) => {
-                    if let Some(payload) = m.payload() {
-                        return Ok(String::from_utf8_lossy(payload).to_string());
+    fn consume(&self, topic: &str) -> Result<String, String> {
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create runtime: {}", e))?;
+        
+        rt.block_on(async {
+            let consumer: &StreamConsumer = &self.consumer;
+            
+            match consumer.subscribe(&[topic]) {
+                Ok(_) => {
+                    match consumer.recv().await {
+                        Ok(message) => {
+                            match message.payload_view::<str>() {
+                                Some(Ok(payload)) => Ok(payload.to_string()),
+                                Some(Err(e)) => Err(format!("Error deserializing message payload: {}", e)),
+                                None => Err("Empty message payload".to_string()),
+                            }
+                        }
+                        Err(e) => Err(format!("Error receiving message: {}", e)),
                     }
                 }
-                Some(Err(e)) => return Err(e.to_string()),
-                None => sleep(Duration::from_millis(100)).await,
+                Err(e) => Err(format!("Error subscribing to topic: {}", e)),
             }
-        }
-        Err("No message received".to_string())
+        })
     }
 }
