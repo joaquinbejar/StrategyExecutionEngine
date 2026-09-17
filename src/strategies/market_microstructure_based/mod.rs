@@ -27,8 +27,8 @@ THE SOFTWARE.
 ******************************************************************************/
 
 pub mod adverse_selection;
-pub mod adverse_selection_split;
 pub mod adverse_selection_impl;
+pub mod adverse_selection_split;
 
 // Use specific exports instead of glob exports to avoid ambiguity
-pub use adverse_selection_impl::{AdverseSelectionStrategy, AdverseSelectionConfig, MarketState};
+pub use adverse_selection_impl::{AdverseSelectionConfig, AdverseSelectionStrategy, MarketState};

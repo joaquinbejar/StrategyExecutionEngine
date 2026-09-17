@@ -44,19 +44,15 @@ various aspects of adverse selection and its impact on trading strategies.
 (Chapter 4 provides insights into adverse selection and methods to manage it).
 */
 
-use std::collections::VecDeque;
-use std::time::{SystemTime, Duration};
-use serde::{Deserialize, Serialize};
-use rand::Rng;
+use crate::models::orders::Side;
 use crate::models::{ChildOrder, ParentOrder};
 use crate::strategies::OrderSplitStrategy;
-use crate::models::orders::Side;
+use rand::RngExt;
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::time::SystemTime;
 
-// 导入项目中已有的模块
-use crate::models::orders::{Order, OrderType as ModelOrderType, ProductType, TimeInForce};
-use crate::models::child_orders::ChildOrder as ModelChildOrder;
-use crate::models::parent_orders::ParentOrder as ModelParentOrder;
-use crate::strategies::common_strategies::OrderSplitStrategy as CommonOrderSplitStrategy;
+use crate::models::orders::Order;
 
 /// Strategy trait and related types
 pub trait Strategy {
@@ -139,8 +135,6 @@ pub struct Candle {
     pub close: f64,
     pub volume: f64,
 }
-
-/// Order data (internal representation for the strategy)
 
 /// Position data
 #[derive(Debug, Clone, Default)]
@@ -237,7 +231,7 @@ pub struct AdverseSelectionStrategy {
 
 /// Market state evaluation
 #[derive(Debug, Clone, PartialEq)]
-enum MarketState {
+pub enum MarketState {
     /// Normal market state
     Normal,
     /// Buyer informed state
@@ -280,13 +274,13 @@ impl AdverseSelectionStrategy {
 
         let bid_change = bid_volume_current - bid_volume_previous;
         let ask_change = ask_volume_current - ask_volume_previous;
-        
+
         // Calculate imbalance ratio
         let total_change = bid_change.abs() + ask_change.abs();
         if total_change == 0.0 {
             return 0.0;
         }
-        
+
         (bid_change - ask_change) / total_change
     }
 
@@ -297,8 +291,9 @@ impl AdverseSelectionStrategy {
         }
 
         // Calculate average trade size
-        let avg_size: f64 = self.recent_trades.iter().map(|t| t.size).sum::<f64>() / self.recent_trades.len() as f64;
-        
+        let avg_size: f64 = self.recent_trades.iter().map(|t| t.size).sum::<f64>()
+            / self.recent_trades.len() as f64;
+
         // Check if the most recent trade is significantly larger than average
         let latest_trade = self.recent_trades.back().unwrap();
         latest_trade.size > avg_size * self.config.trade_size_threshold
@@ -312,7 +307,7 @@ impl AdverseSelectionStrategy {
 
         let latest_trade = self.recent_trades.back().unwrap();
         let previous_trade = &self.recent_trades[self.recent_trades.len() - 2];
-        
+
         (latest_trade.price - previous_trade.price).abs() / previous_trade.price
     }
 
@@ -346,14 +341,14 @@ impl AdverseSelectionStrategy {
         }
 
         // Detect adverse selection if multiple conditions are met
-        let is_adverse = (imbalance.abs() > self.config.imbalance_threshold && 
-                         price_impact > self.config.price_impact_threshold) || 
-                        (abnormal_size && price_impact > self.config.price_impact_threshold);
-        
+        let is_adverse = (imbalance.abs() > self.config.imbalance_threshold
+            && price_impact > self.config.price_impact_threshold)
+            || (abnormal_size && price_impact > self.config.price_impact_threshold);
+
         if is_adverse {
             self.last_adverse_detection = Some(SystemTime::now());
         }
-        
+
         is_adverse
     }
 
@@ -364,49 +359,49 @@ impl AdverseSelectionStrategy {
         }
 
         let current_price = self.recent_trades.back().unwrap().price;
-        
+
         // Check for position management (stop loss/take profit)
         if let Some(ref_price) = self.reference_price {
             if self.position.size > 0.0 {
                 // Long position management
                 let pnl_pct = (current_price - ref_price) / ref_price;
-                
+
                 if pnl_pct <= -self.config.stop_loss_pct {
                     println!("Stop loss triggered for long position");
-                    return Some(StrategySignal::Sell { 
+                    return Some(StrategySignal::Sell {
                         price: current_price,
                         size: self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Stop loss".to_string()
+                        reason: "Stop loss".to_string(),
                     });
                 } else if pnl_pct >= self.config.take_profit_pct {
                     println!("Take profit triggered for long position");
-                    return Some(StrategySignal::Sell { 
+                    return Some(StrategySignal::Sell {
                         price: current_price,
                         size: self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Take profit".to_string()
+                        reason: "Take profit".to_string(),
                     });
                 }
             } else if self.position.size < 0.0 {
                 // Short position management
                 let pnl_pct = (ref_price - current_price) / ref_price;
-                
+
                 if pnl_pct <= -self.config.stop_loss_pct {
                     println!("Stop loss triggered for short position");
-                    return Some(StrategySignal::Buy { 
+                    return Some(StrategySignal::Buy {
                         price: current_price,
                         size: -self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Stop loss".to_string()
+                        reason: "Stop loss".to_string(),
                     });
                 } else if pnl_pct >= self.config.take_profit_pct {
                     println!("Take profit triggered for short position");
-                    return Some(StrategySignal::Buy { 
+                    return Some(StrategySignal::Buy {
                         price: current_price,
                         size: -self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Take profit".to_string()
+                        reason: "Take profit".to_string(),
                     });
                 }
             }
@@ -415,29 +410,29 @@ impl AdverseSelectionStrategy {
         // Check for adverse selection
         if self.detect_adverse_selection() {
             self.last_adverse_detection = Some(SystemTime::now());
-            
+
             // Calculate order imbalance to determine direction
             let imbalance = self.calculate_order_imbalance();
-            
+
             if imbalance > 0.0 {
                 // Positive imbalance suggests buying pressure, potentially from informed traders
                 if self.position.size > 0.0 {
                     // If we have a long position, close it to avoid adverse selection
                     println!("Adverse selection detected: Closing long position due to potential informed buying");
-                    return Some(StrategySignal::Sell { 
+                    return Some(StrategySignal::Sell {
                         price: current_price,
                         size: self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Adverse selection protection".to_string()
+                        reason: "Adverse selection protection".to_string(),
                     });
                 } else if self.position.size == 0.0 {
                     // If no position, consider following the informed traders
                     println!("Adverse selection detected: Following potential informed buying");
-                    return Some(StrategySignal::Buy { 
+                    return Some(StrategySignal::Buy {
                         price: current_price,
                         size: self.config.max_position_size,
                         order_type: OrderType::Limit,
-                        reason: "Following informed flow".to_string()
+                        reason: "Following informed flow".to_string(),
                     });
                 }
             } else {
@@ -445,25 +440,25 @@ impl AdverseSelectionStrategy {
                 if self.position.size < 0.0 {
                     // If we have a short position, close it to avoid adverse selection
                     println!("Adverse selection detected: Closing short position due to potential informed selling");
-                    return Some(StrategySignal::Buy { 
+                    return Some(StrategySignal::Buy {
                         price: current_price,
                         size: -self.position.size,
                         order_type: OrderType::Market,
-                        reason: "Adverse selection protection".to_string()
+                        reason: "Adverse selection protection".to_string(),
                     });
                 } else if self.position.size == 0.0 {
                     // If no position, consider following the informed traders
                     println!("Adverse selection detected: Following potential informed selling");
-                    return Some(StrategySignal::Sell { 
+                    return Some(StrategySignal::Sell {
                         price: current_price,
                         size: self.config.max_position_size,
                         order_type: OrderType::Limit,
-                        reason: "Following informed flow".to_string()
+                        reason: "Following informed flow".to_string(),
                     });
                 }
             }
         }
-        
+
         None
     }
 
@@ -471,7 +466,7 @@ impl AdverseSelectionStrategy {
     fn update_position(&mut self, order: &Order) {
         let current_price = order.price.unwrap_or(0.0);
         let quantity = order.quantity as f64;
-        
+
         match order.side {
             Side::Buy => {
                 // Update position for buy order
@@ -489,13 +484,15 @@ impl AdverseSelectionStrategy {
                     let old_value = self.position.size - quantity;
                     let new_value = quantity;
                     let total = self.position.size;
-                    
+
                     self.reference_price = Some(match self.reference_price {
-                        Some(ref_price) => (ref_price * old_value + current_price * new_value) / total,
-                        None => current_price
+                        Some(ref_price) => {
+                            (ref_price * old_value + current_price * new_value) / total
+                        }
+                        None => current_price,
                     });
                 }
-            },
+            }
             Side::Sell => {
                 // Update position for sell order
                 if self.position.size > 0.0 {
@@ -512,17 +509,21 @@ impl AdverseSelectionStrategy {
                     let old_value = -self.position.size - quantity;
                     let new_value = quantity;
                     let total = -self.position.size;
-                    
+
                     self.reference_price = Some(match self.reference_price {
-                        Some(ref_price) => (ref_price * old_value + current_price * new_value) / total,
-                        None => current_price
+                        Some(ref_price) => {
+                            (ref_price * old_value + current_price * new_value) / total
+                        }
+                        None => current_price,
                     });
                 }
             }
         }
-        
-        println!("Position updated: size={}, reference_price={:?}", 
-               self.position.size, self.reference_price);
+
+        println!(
+            "Position updated: size={}, reference_price={:?}",
+            self.position.size, self.reference_price
+        );
     }
 
     /// Get current market state
@@ -556,14 +557,14 @@ impl Strategy for AdverseSelectionStrategy {
                 if self.recent_trades.len() > 100 {
                     self.recent_trades.pop_front();
                 }
-            },
+            }
             MarketData::OrderBook(order_book) => {
                 // Add order book to recent order books queue
                 self.recent_order_books.push_back(order_book.clone());
                 if self.recent_order_books.len() > self.config.window_size {
                     self.recent_order_books.pop_front();
                 }
-            },
+            }
             _ => {}
         }
 
@@ -595,75 +596,85 @@ impl Strategy for AdverseSelectionStrategy {
 impl OrderSplitStrategy for AdverseSelectionStrategy {
     fn split(&self, parent_order: &ParentOrder) -> Vec<ChildOrder> {
         let mut child_orders = Vec::new();
-        let mut rng = rand::thread_rng();
-        
+        let mut rng = rand::rng();
+
         // Determine split strategy based on market state
         let (num_splits, base_interval_ms) = match self.market_state {
             MarketState::Normal => {
                 // Normal market state, use medium split count and interval
-                (self.config.max_splits / 2, 
-                 (self.config.min_split_interval_ms + self.config.max_split_interval_ms) / 2)
-            },
+                (
+                    self.config.max_splits / 2,
+                    (self.config.min_split_interval_ms + self.config.max_split_interval_ms) / 2,
+                )
+            }
             MarketState::BuyerInformed => {
                 if parent_order.order_common.side == Side::Buy {
                     // Buyer informed, buy orders use more splits and longer interval
                     (self.config.max_splits, self.config.max_split_interval_ms)
                 } else {
                     // Sell orders use fewer splits and shorter interval
-                    (self.config.max_splits / 3, self.config.min_split_interval_ms)
+                    (
+                        self.config.max_splits / 3,
+                        self.config.min_split_interval_ms,
+                    )
                 }
-            },
+            }
             MarketState::SellerInformed => {
                 if parent_order.order_common.side == Side::Sell {
                     // Seller informed, sell orders use more splits and longer interval
                     (self.config.max_splits, self.config.max_split_interval_ms)
                 } else {
                     // Buy orders use fewer splits and shorter interval
-                    (self.config.max_splits / 3, self.config.min_split_interval_ms)
+                    (
+                        self.config.max_splits / 3,
+                        self.config.min_split_interval_ms,
+                    )
                 }
-            },
+            }
             MarketState::HighVolatility => {
                 // High volatility state, use maximum splits and shortest interval
                 (self.config.max_splits, self.config.min_split_interval_ms)
             }
         };
-        
+
         // Calculate base size for each child order
         let base_quantity = parent_order.order_common.quantity / num_splits as u32;
         let mut remaining_quantity = parent_order.order_common.quantity;
-        
+
         // Create child orders
         for i in 0..num_splits {
             // Add some variation to child order size, except for the last order
             let quantity = if i < num_splits - 1 {
                 // Use random variation based on configuration
-                let variation_factor = 1.0 + self.config.size_variation_pct * (rng.gen::<f64>() * 2.0 - 1.0);
+                let variation_factor =
+                    1.0 + self.config.size_variation_pct * (rng.random::<f64>() * 2.0 - 1.0);
                 let quantity = (base_quantity as f64 * variation_factor).max(1.0) as u32;
                 quantity.min(remaining_quantity) // Ensure does not exceed remaining quantity
             } else {
                 // Last order uses all remaining quantity
                 remaining_quantity
             };
-            
+
             // Update remaining quantity
             remaining_quantity = remaining_quantity.saturating_sub(quantity);
-            
+
             // Calculate execution time for child order
-            let interval_variation = (rng.gen::<f64>() * 0.4 - 0.2) * base_interval_ms as f64;
-            let interval_ms = (base_interval_ms as f64 * (1.0 + i as f64 * 0.2) + interval_variation) as u64;
-            
+            let interval_variation = (rng.random::<f64>() * 0.4 - 0.2) * base_interval_ms as f64;
+            let interval_ms =
+                (base_interval_ms as f64 * (1.0 + i as f64 * 0.2) + interval_variation) as u64;
+
             // Get current time in milliseconds since UNIX epoch
             let now = SystemTime::now();
             let execution_time_millis = match now.duration_since(SystemTime::UNIX_EPOCH) {
                 Ok(duration) => duration.as_millis() as u64 + interval_ms,
                 Err(_) => interval_ms, // Fallback if system time is before UNIX epoch
             };
-            
+
             // Create a new order based on parent order
             let mut order = parent_order.order_common.clone();
             order.id = format!("{}-{}", parent_order.order_common.id, i);
             order.quantity = quantity;
-            
+
             // Create child order
             let child_order = ChildOrder {
                 order_common: order,
@@ -671,10 +682,10 @@ impl OrderSplitStrategy for AdverseSelectionStrategy {
                 parent_id: parent_order.order_common.id.clone(),
                 insert_at: Some(execution_time_millis),
             };
-            
+
             child_orders.push(child_order);
         }
-        
+
         child_orders
     }
 }
@@ -682,14 +693,16 @@ impl OrderSplitStrategy for AdverseSelectionStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::orders::{Order, ProductType, OrderType as ModelOrderType, Side, TimeInForce};
+    use crate::models::orders::{
+        Order, OrderType as ModelOrderType, ProductType, Side, TimeInForce,
+    };
     use std::time::UNIX_EPOCH;
 
     #[test]
     fn test_strategy_initialization() {
         let config = AdverseSelectionConfig::default();
         let strategy = AdverseSelectionStrategy::new(config);
-        
+
         assert_eq!(strategy.state, StrategyState::Idle);
         assert_eq!(strategy.recent_trades.len(), 0);
         assert_eq!(strategy.recent_order_books.len(), 0);
@@ -701,19 +714,19 @@ mod tests {
     fn test_order_imbalance_calculation() {
         let config = AdverseSelectionConfig::default();
         let mut strategy = AdverseSelectionStrategy::new(config);
-        
+
         // Create two order books with imbalance
         let mut order_book1 = OrderBook::default();
         order_book1.bids.push((100.0, 10.0));
         order_book1.asks.push((101.0, 10.0));
-        
+
         let mut order_book2 = OrderBook::default();
         order_book2.bids.push((100.0, 15.0)); // Increased bid volume
-        order_book2.asks.push((101.0, 8.0));  // Decreased ask volume
-        
+        order_book2.asks.push((101.0, 8.0)); // Decreased ask volume
+
         strategy.recent_order_books.push_back(order_book1);
         strategy.recent_order_books.push_back(order_book2);
-        
+
         let imbalance = strategy.calculate_order_imbalance();
         assert!(imbalance > 0.0); // Should be positive due to increased buying pressure
     }
@@ -722,7 +735,7 @@ mod tests {
     fn test_abnormal_trade_size_detection() {
         let config = AdverseSelectionConfig::default();
         let mut strategy = AdverseSelectionStrategy::new(config);
-        
+
         // Add 10 normal-sized trades
         for i in 0..10 {
             let trade = Trade {
@@ -733,19 +746,19 @@ mod tests {
             };
             strategy.recent_trades.push_back(trade);
         }
-        
+
         // No abnormal trade yet
         assert!(!strategy.detect_abnormal_trade_size());
-        
+
         // Add an abnormally large trade
         let large_trade = Trade {
             timestamp: SystemTime::now(),
             price: 101.0,
-            size: 5.0, // 5x the average size
+            size: 5.0,       // 5x the average size
             side: Side::Buy, // Use a fixed side instead of random for testing
         };
         strategy.recent_trades.push_back(large_trade);
-        
+
         // Should detect the abnormal trade
         assert!(strategy.detect_abnormal_trade_size());
     }
@@ -754,7 +767,7 @@ mod tests {
     fn test_position_update() {
         let config = AdverseSelectionConfig::default();
         let mut strategy = AdverseSelectionStrategy::new(config);
-        
+
         // Test buy order
         let buy_order = Order::new(
             "order1".to_string(),
@@ -762,20 +775,28 @@ mod tests {
             ProductType::Spot,
             ModelOrderType::Market,
             Some(100.0), // price
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64, // timestamp
-            None, // expiry_date
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64, // timestamp
+            None,        // expiry_date
             "BTC/USD".to_string(), // symbol
-            Side::Buy, // side
+            Side::Buy,   // side
             "USD".to_string(), // currency
             Some("BINANCE".to_string()), // exchange
             Some(TimeInForce::GTC), // timeinforce
-            None, None, None, None, None, None // optional fields
+            None,
+            None,
+            None,
+            None,
+            None,
+            None, // optional fields
         );
-        
+
         strategy.update_position(&buy_order);
         assert_eq!(strategy.position.size, 100.0);
         assert!(strategy.reference_price.is_some());
-        
+
         // Test sell order that reduces position
         let sell_order = Order::new(
             "order2".to_string(),
@@ -783,19 +804,27 @@ mod tests {
             ProductType::Spot,
             ModelOrderType::Market,
             Some(110.0), // price
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64, // timestamp
-            None, // expiry_date
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64, // timestamp
+            None,        // expiry_date
             "BTC/USD".to_string(), // symbol
-            Side::Sell, // side
+            Side::Sell,  // side
             "USD".to_string(), // currency
             Some("BINANCE".to_string()), // exchange
             Some(TimeInForce::GTC), // timeinforce
-            None, None, None, None, None, None // optional fields
+            None,
+            None,
+            None,
+            None,
+            None,
+            None, // optional fields
         );
-        
+
         strategy.update_position(&sell_order);
         assert_eq!(strategy.position.size, 50.0);
-        
+
         // Test sell order that flips position to short
         let sell_order2 = Order::new(
             "order3".to_string(),
@@ -803,16 +832,24 @@ mod tests {
             ProductType::Spot,
             ModelOrderType::Market,
             Some(105.0), // price
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64, // timestamp
-            None, // expiry_date
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64, // timestamp
+            None,        // expiry_date
             "BTC/USD".to_string(), // symbol
-            Side::Sell, // side
+            Side::Sell,  // side
             "USD".to_string(), // currency
             Some("BINANCE".to_string()), // exchange
             Some(TimeInForce::GTC), // timeinforce
-            None, None, None, None, None, None // optional fields
+            None,
+            None,
+            None,
+            None,
+            None,
+            None, // optional fields
         );
-        
+
         strategy.update_position(&sell_order2);
         assert_eq!(strategy.position.size, -50.0);
         assert!(strategy.reference_price.is_some());
@@ -822,10 +859,10 @@ mod tests {
     fn test_split_order_normal_market() {
         let config = AdverseSelectionConfig::default();
         let mut strategy = AdverseSelectionStrategy::new(config.clone());
-        
+
         // Set normal market state
         strategy.market_state = MarketState::Normal;
-        
+
         // Create parent order with the correct structure
         let order = Order::new(
             "test-order-123".to_string(),
@@ -833,27 +870,35 @@ mod tests {
             ProductType::Spot,
             ModelOrderType::Market,
             Some(50000.0), // price
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64, // timestamp
-            None, // expiry_date
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64, // timestamp
+            None,          // expiry_date
             "BTC/USD".to_string(), // symbol
-            Side::Buy, // side
+            Side::Buy,     // side
             "USD".to_string(), // currency
             Some("BINANCE".to_string()), // exchange
             Some(TimeInForce::GTC), // timeinforce
-            None, None, None, None, None, None // optional fields
+            None,
+            None,
+            None,
+            None,
+            None,
+            None, // optional fields
         );
-        
+
         let parent_order = ParentOrder {
             order_common: order,
             strategy_id: "TWAP".to_string(),
         };
-        
+
         // Split order
         let child_orders = strategy.split(&parent_order);
-        
+
         // Verify split count
         assert_eq!(child_orders.len(), config.max_splits / 2);
-        
+
         // Verify total quantity
         let total_quantity: u32 = child_orders.iter().map(|o| o.order_common.quantity).sum();
         assert_eq!(total_quantity, parent_order.order_common.quantity);

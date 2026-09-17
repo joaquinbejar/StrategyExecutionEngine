@@ -232,6 +232,7 @@ pub struct Order {
 }
 
 impl Order {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         quantity: u32,

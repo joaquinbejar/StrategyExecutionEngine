@@ -41,6 +41,7 @@ pub struct ChildOrder {
 }
 
 impl ChildOrder {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
         quantity: u32,

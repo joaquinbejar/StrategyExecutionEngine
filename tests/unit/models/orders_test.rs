@@ -28,7 +28,6 @@ THE SOFTWARE.
 
 #[cfg(test)]
 mod orders_tests {
-    use super::*;
     use strategy_execution_engine::models::orders::{
         Futures, OptionType, Options, Order, OrderType, ProductType, Side, Swap, TimeInForce, CFD,
     };

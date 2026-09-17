@@ -28,10 +28,9 @@ THE SOFTWARE.
 
 #[cfg(test)]
 mod child_orders_tests {
-    use serde_json;
     use strategy_execution_engine::models::child_orders::ChildOrder;
     use strategy_execution_engine::models::orders::{
-        Futures, OptionType, Options, Order, OrderType, ProductType, Side, Swap, TimeInForce, CFD,
+        Order, OrderType, ProductType, Side, TimeInForce,
     };
     use strategy_execution_engine::Validate;
 

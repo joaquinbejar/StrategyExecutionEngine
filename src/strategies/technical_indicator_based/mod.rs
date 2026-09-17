@@ -25,16 +25,15 @@ THE SOFTWARE.
    Email: jb@taunais.com
    Date: 25/5/24
 ******************************************************************************/
+mod bollingerbands;
 mod heikin_ashi;
 mod macd;
 mod rsi;
-mod bollingerbands;
 mod stoc;
 
 // 导出模块中的结构体
+pub use bollingerbands::BollingerBandsStrategy;
 pub use heikin_ashi::HeikinAshiStrategy;
 pub use macd::MAStrategy;
 pub use rsi::RSIStrategy;
-pub use bollingerbands::BollingerBandsStrategy;
 pub use stoc::StochasticStrategy;
-

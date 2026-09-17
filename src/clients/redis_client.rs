@@ -39,6 +39,12 @@ impl RedisClient {
     }
 }
 
+impl Default for RedisClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessagingClient for RedisClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
         // Redis-specific produce logic

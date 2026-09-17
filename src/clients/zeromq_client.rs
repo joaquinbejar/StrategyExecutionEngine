@@ -39,6 +39,12 @@ impl crate::ZeroMQClient {
     }
 }
 
+impl Default for ZeroMQClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessagingClient for crate::ZeroMQClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
         // NATS-specific produce logic

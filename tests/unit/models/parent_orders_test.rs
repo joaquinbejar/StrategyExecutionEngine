@@ -28,7 +28,6 @@ THE SOFTWARE.
 
 #[cfg(test)]
 mod parent_orders_tests {
-    use serde_json;
     use strategy_execution_engine::models::orders::{
         Futures, OptionType, Options, OrderType, ProductType, Side, Swap, TimeInForce, CFD,
     };
