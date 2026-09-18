@@ -1,6 +1,6 @@
 [package]
 name = "strategy_execution_engine"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Joaquin Bejar <jb@taunais.com>"]
 description = "A Rust library for creating and executing market order strategies with integration for Kafka, NATS, RabbitMQ, ZeroMQ, and Redis."
