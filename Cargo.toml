@@ -23,22 +23,22 @@ exclude = [
 ]
 
 [dependencies]
-tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread", "macros", "time"] }
-rdkafka = "0.36.2"
-futures-util = "0.3.30"
-dotenv = "0.15.0"
-thiserror = "1.0.60"
-serde_json = "1.0.117"
-serde = { version = "1.0.202", features = ["derive"] }
-rand = "0.9.0"
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "macros", "time"] }
+rdkafka = "0.39"
+futures-util = "0.3"
+dotenv = "0.15"
+thiserror = "2.0"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+rand = "0.10"
 
 
 [dev-dependencies]
-mockall = "0.12.1"
-tokio-test = "0.4.4"
-futures-util = "0.3.30"
-async-std = "1.12.0"
-lazy_static = "1.4.0"
+mockall = "0.15"
+tokio-test = "0.4"
+futures-util = "0.3"
+async-std = "1.13"
+lazy_static = "1.5"
 
 [[example]]
 name = "example_simple"

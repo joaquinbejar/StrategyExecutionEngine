@@ -27,7 +27,7 @@ THE SOFTWARE.
 ******************************************************************************/
 
 #[cfg(test)]
-mod config_test {
+mod config_tests {
     use lazy_static::lazy_static;
     use std::env;
     use std::sync::Mutex;

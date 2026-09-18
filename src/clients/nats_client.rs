@@ -39,6 +39,12 @@ impl NatsClient {
     }
 }
 
+impl Default for NatsClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessagingClient for NatsClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
         // NATS-specific produce logic

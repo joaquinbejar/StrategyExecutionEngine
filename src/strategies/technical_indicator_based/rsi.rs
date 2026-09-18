@@ -11,11 +11,11 @@ RSI是一种动量振荡指标，用于衡量价格变动的速度和变化。RS
 介绍了RSI指标及其应用。(第3章详细讨论了RSI的计算和使用)
 */
 
-use std::collections::VecDeque;
-use crate::models::orders::Side;
 use crate::models::child_orders::ChildOrder;
+use crate::models::orders::Side;
 use crate::models::parent_orders::ParentOrder;
 use crate::strategies::common_strategies::OrderSplitStrategy;
+use std::collections::VecDeque;
 
 pub struct RSIStrategy {
     period: usize,
@@ -37,12 +37,12 @@ impl RSIStrategy {
             oversold_threshold,
         }
     }
-    
+
     pub fn add_price(&mut self, price: f64) {
         if !self.prices.is_empty() {
             let prev_price = *self.prices.back().unwrap();
             let change = price - prev_price;
-            
+
             if change > 0.0 {
                 self.gains.push_back(change);
                 self.losses.push_back(0.0);
@@ -50,40 +50,40 @@ impl RSIStrategy {
                 self.gains.push_back(0.0);
                 self.losses.push_back(-change);
             }
-            
+
             if self.gains.len() > self.period {
                 self.gains.pop_front();
                 self.losses.pop_front();
             }
         }
-        
+
         self.prices.push_back(price);
         if self.prices.len() > self.period + 1 {
             self.prices.pop_front();
         }
     }
-    
+
     pub fn calculate_rsi(&self) -> Option<f64> {
         if self.gains.len() < self.period {
             return None;
         }
-        
+
         let avg_gain: f64 = self.gains.iter().sum::<f64>() / self.period as f64;
         let avg_loss: f64 = self.losses.iter().sum::<f64>() / self.period as f64;
-        
+
         if avg_loss == 0.0 {
             return Some(100.0);
         }
-        
+
         let rs = avg_gain / avg_loss;
         let rsi = 100.0 - (100.0 / (1.0 + rs));
-        
+
         Some(rsi)
     }
-    
+
     pub fn get_signal(&self) -> Option<Side> {
         let rsi = self.calculate_rsi()?;
-        
+
         if rsi < self.oversold_threshold {
             Some(Side::Buy)
         } else if rsi > self.overbought_threshold {
@@ -100,7 +100,7 @@ impl OrderSplitStrategy for RSIStrategy {
         if signal.is_none() {
             return Vec::new();
         }
-        
+
         match (signal.unwrap(), &parent_order.order_common.side) {
             (Side::Buy, Side::Buy) | (Side::Sell, Side::Sell) => {
                 vec![ChildOrder {
@@ -109,7 +109,7 @@ impl OrderSplitStrategy for RSIStrategy {
                     parent_id: parent_order.order_common.id.clone(),
                     insert_at: Some(parent_order.order_common.timestamp),
                 }]
-            },
+            }
             _ => Vec::new(),
         }
     }
@@ -135,13 +135,13 @@ mod tests {
     #[test]
     fn test_add_price() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 添加第一个价格
         strategy.add_price(100.0);
         assert_eq!(strategy.prices.len(), 1);
         assert_eq!(strategy.gains.len(), 0);
         assert_eq!(strategy.losses.len(), 0);
-        
+
         // 添加上升价格
         strategy.add_price(110.0);
         assert_eq!(strategy.prices.len(), 2);
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(strategy.losses.len(), 1);
         assert_eq!(strategy.gains[0], 10.0);
         assert_eq!(strategy.losses[0], 0.0);
-        
+
         // 添加下降价格
         strategy.add_price(100.0);
         assert_eq!(strategy.prices.len(), 3);
@@ -162,30 +162,30 @@ mod tests {
     #[test]
     fn test_calculate_rsi() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 添加价格
         strategy.add_price(100.0);
         assert!(strategy.calculate_rsi().is_none());
-        
+
         // 添加连续上涨的价格
         strategy.add_price(110.0);
         strategy.add_price(120.0);
         strategy.add_price(130.0);
         strategy.add_price(140.0);
         strategy.add_price(150.0);
-        
+
         // 现在应该能计算RSI
         let rsi = strategy.calculate_rsi();
         assert!(rsi.is_some());
         assert_eq!(rsi.unwrap(), 100.0); // 全是上涨，RSI = 100
-        
+
         // 添加连续下跌的价格
         strategy.add_price(140.0);
         strategy.add_price(130.0);
         strategy.add_price(120.0);
         strategy.add_price(110.0);
         strategy.add_price(100.0);
-        
+
         // 现在RSI应该很低
         let rsi = strategy.calculate_rsi();
         assert!(rsi.is_some());
@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_buy_signal_generation() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 添加价格使RSI低于30
         strategy.add_price(100.0);
         strategy.add_price(95.0);
@@ -203,7 +203,7 @@ mod tests {
         strategy.add_price(85.0);
         strategy.add_price(80.0);
         strategy.add_price(75.0);
-        
+
         // 此时应该有买入信号
         let signal = strategy.get_signal();
         assert!(signal.is_some());
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_sell_signal_generation() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 添加价格使RSI高于70
         strategy.add_price(100.0);
         strategy.add_price(110.0);
@@ -221,7 +221,7 @@ mod tests {
         strategy.add_price(130.0);
         strategy.add_price(140.0);
         strategy.add_price(150.0);
-        
+
         // 此时应该有卖出信号
         let signal = strategy.get_signal();
         assert!(signal.is_some());
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_order_split_with_matching_signal() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 设置产生买入信号
         strategy.add_price(100.0);
         strategy.add_price(95.0);
@@ -239,7 +239,7 @@ mod tests {
         strategy.add_price(85.0);
         strategy.add_price(80.0);
         strategy.add_price(75.0);
-        
+
         // 创建买入父订单
         let parent_order = ParentOrder {
             order_common: Order::new(
@@ -264,10 +264,10 @@ mod tests {
             ),
             strategy_id: "rsi_strategy".to_string(),
         };
-        
+
         // 分割订单
         let child_orders = strategy.split(&parent_order);
-        
+
         // 验证生成了子订单
         assert_eq!(child_orders.len(), 1);
         assert_eq!(child_orders[0].parent_id, "test_id");
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn test_order_split_with_non_matching_signal() {
         let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
-        
+
         // 设置产生买入信号
         strategy.add_price(100.0);
         strategy.add_price(95.0);
@@ -285,7 +285,7 @@ mod tests {
         strategy.add_price(85.0);
         strategy.add_price(80.0);
         strategy.add_price(75.0);
-        
+
         // 创建卖出父订单（与信号不匹配）
         let parent_order = ParentOrder {
             order_common: Order::new(
@@ -310,10 +310,10 @@ mod tests {
             ),
             strategy_id: "rsi_strategy".to_string(),
         };
-        
+
         // 分割订单
         let child_orders = strategy.split(&parent_order);
-        
+
         // 验证没有生成子订单
         assert_eq!(child_orders.len(), 0);
     }

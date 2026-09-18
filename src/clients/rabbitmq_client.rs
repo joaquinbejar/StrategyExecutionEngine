@@ -39,6 +39,12 @@ impl crate::RabbitMQClient {
     }
 }
 
+impl Default for RabbitMQClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessagingClient for crate::RabbitMQClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
         // NATS-specific produce logic

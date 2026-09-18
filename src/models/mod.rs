@@ -33,6 +33,5 @@ pub mod parent_orders;
 
 // Re-exporting submodules to make them accessible from the models module
 pub use child_orders::*;
-pub use format::*;
 pub use orders::*;
 pub use parent_orders::*;

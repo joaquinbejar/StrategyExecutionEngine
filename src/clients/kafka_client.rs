@@ -29,7 +29,7 @@ THE SOFTWARE.
 use crate::MessagingClient;
 
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{StreamConsumer, Consumer};
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::{BaseProducer, BaseRecord};
 use rdkafka::Message;
 
@@ -65,35 +65,43 @@ impl KafkaClient {
             group_id,
         }
     }
+
+    /// Bootstrap servers this client was created with
+    pub fn brokers(&self) -> &str {
+        &self.brokers
+    }
+
+    /// Consumer group id this client was created with
+    pub fn group_id(&self) -> &str {
+        &self.group_id
+    }
 }
 
 impl MessagingClient for KafkaClient {
     fn produce(&self, topic: &str, message: &str) -> Result<(), String> {
         let record: BaseRecord<'_, str, str> = BaseRecord::to(topic).payload(message);
-        self.producer.send(record).map_err(|(err, _)| err.to_string())?;
+        self.producer
+            .send(record)
+            .map_err(|(err, _)| err.to_string())?;
         Ok(())
     }
 
     fn consume(&self, topic: &str) -> Result<String, String> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create runtime: {}", e))?;
-        
+
         rt.block_on(async {
             let consumer: &StreamConsumer = &self.consumer;
-            
+
             match consumer.subscribe(&[topic]) {
-                Ok(_) => {
-                    match consumer.recv().await {
-                        Ok(message) => {
-                            match message.payload_view::<str>() {
-                                Some(Ok(payload)) => Ok(payload.to_string()),
-                                Some(Err(e)) => Err(format!("Error deserializing message payload: {}", e)),
-                                None => Err("Empty message payload".to_string()),
-                            }
-                        }
-                        Err(e) => Err(format!("Error receiving message: {}", e)),
-                    }
-                }
+                Ok(_) => match consumer.recv().await {
+                    Ok(message) => match message.payload_view::<str>() {
+                        Some(Ok(payload)) => Ok(payload.to_string()),
+                        Some(Err(e)) => Err(format!("Error deserializing message payload: {}", e)),
+                        None => Err("Empty message payload".to_string()),
+                    },
+                    Err(e) => Err(format!("Error receiving message: {}", e)),
+                },
                 Err(e) => Err(format!("Error subscribing to topic: {}", e)),
             }
         })
