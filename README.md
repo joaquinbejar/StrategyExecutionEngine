@@ -71,6 +71,24 @@ Joaquín Béjar García - Initial work - [joaquinbejar](https://github.com/joaqu
 
 See also the list of contributors who participated in this project.
 
+### Contribution and Contact
+
+We welcome contributions to this project! If you would like to contribute, please follow these steps:
+
+1. Fork the repository.
+2. Create a new branch for your feature or bug fix.
+3. Make your changes and ensure that the project still builds and all tests pass.
+4. Commit your changes and push your branch to your forked repository.
+5. Submit a pull request to the main repository.
+
+If you have any questions, issues, or would like to provide feedback, please feel free to contact the project maintainer:
+
+#### **Contact Information**
+- **Author**: Joaquín Béjar García
+- **Email**: jb@taunais.com
+- **Telegram**: [@joaquin_bejar](https://t.me/joaquin_bejar)
+- **Repository**: <https://github.com/joaquinbejar/StrategyExecutionEngine>
+
 ### License
 
 This project is licensed under the MIT License - see the LICENSE.md file for details.
@@ -78,3 +96,10 @@ This project is licensed under the MIT License - see the LICENSE.md file for det
 ### Acknowledgments
 
 Will be added in the future.
+
+<!-- related-projects:start -->
+## Related projects
+
+No other repositories by the same author depend on this project, and it depends on none of them. See all repositories at <https://github.com/joaquinbejar?tab=repositories>.
+
+<!-- related-projects:end -->
