@@ -36,4 +36,6 @@ pub use bollingerbands::BollingerBandsStrategy;
 pub use heikin_ashi::HeikinAshiStrategy;
 pub use macd::MAStrategy;
 pub use rsi::RSIStrategy;
+#[cfg(feature = "wilder-rsi")]
+pub use rsi::WilderRSIStrategy;
 pub use stoc::StochasticStrategy;
