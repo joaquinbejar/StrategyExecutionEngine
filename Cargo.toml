@@ -31,6 +31,12 @@ thiserror = "2.0"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 rand = "0.10"
+fin-primitives = { version = "~3.9", default-features = false, features = ["indicators"], optional = true }
+rust_decimal = { version = "1.36", default-features = false, features = ["std"], optional = true }
+
+[features]
+# Adds WilderRSIStrategy (Wilder smoothing, matches TA-Lib). Does not change RSIStrategy.
+wilder-rsi = ["dep:fin-primitives", "dep:rust_decimal"]
 
 
 [dev-dependencies]

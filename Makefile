@@ -24,6 +24,7 @@ run:
 .PHONY: test
 test:
 	$(CARGO) test
+	$(CARGO) test --all-features
 
 # Clean the project
 .PHONY: clean

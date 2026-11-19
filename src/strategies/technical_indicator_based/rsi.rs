@@ -15,8 +15,41 @@ use crate::models::child_orders::ChildOrder;
 use crate::models::orders::Side;
 use crate::models::parent_orders::ParentOrder;
 use crate::strategies::common_strategies::OrderSplitStrategy;
+#[cfg(feature = "wilder-rsi")]
+use fin_primitives::signals::{indicators::Rsi, BarInput, Signal};
+#[cfg(feature = "wilder-rsi")]
+use rust_decimal::prelude::{Decimal, FromPrimitive, ToPrimitive};
 use std::collections::VecDeque;
 
+/// RSI reported when neither gains nor losses have occurred (a flat market).
+/// 50 is the neutral midpoint, so no Buy or Sell fires on a market that never moved.
+const FLAT_RSI: f64 = 50.0;
+
+fn rsi_signal(rsi: f64, overbought_threshold: f64, oversold_threshold: f64) -> Option<Side> {
+    if rsi < oversold_threshold {
+        Some(Side::Buy)
+    } else if rsi > overbought_threshold {
+        Some(Side::Sell)
+    } else {
+        None
+    }
+}
+
+fn split_on_signal(signal: Option<Side>, parent_order: &ParentOrder) -> Vec<ChildOrder> {
+    match (signal, &parent_order.order_common.side) {
+        (Some(Side::Buy), Side::Buy) | (Some(Side::Sell), Side::Sell) => {
+            vec![ChildOrder {
+                order_common: parent_order.order_common.clone(),
+                strategy_id: parent_order.strategy_id.clone(),
+                parent_id: parent_order.order_common.id.clone(),
+                insert_at: Some(parent_order.order_common.timestamp),
+            }]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// RSI over a rolling simple average of the last `period` gains and losses.
 pub struct RSIStrategy {
     period: usize,
     prices: VecDeque<f64>,
@@ -24,10 +57,14 @@ pub struct RSIStrategy {
     losses: VecDeque<f64>,
     overbought_threshold: f64,
     oversold_threshold: f64,
+    rejected_ticks: u64,
 }
 
 impl RSIStrategy {
+    /// # Panics
+    /// Panics if `period` is 0.
     pub fn new(period: usize, overbought_threshold: f64, oversold_threshold: f64) -> Self {
+        assert!(period > 0, "RSI period must be greater than 0");
         RSIStrategy {
             period,
             prices: VecDeque::with_capacity(period + 1),
@@ -35,10 +72,17 @@ impl RSIStrategy {
             losses: VecDeque::with_capacity(period),
             overbought_threshold,
             oversold_threshold,
+            rejected_ticks: 0,
         }
     }
 
+    /// Adds a close. NaN and infinite prices are skipped and counted in `rejected_ticks`.
     pub fn add_price(&mut self, price: f64) {
+        if !price.is_finite() {
+            self.rejected_ticks += 1;
+            return;
+        }
+
         if !self.prices.is_empty() {
             let prev_price = *self.prices.back().unwrap();
             let change = price - prev_price;
@@ -63,6 +107,11 @@ impl RSIStrategy {
         }
     }
 
+    /// Number of prices skipped by `add_price` because they were not finite.
+    pub fn rejected_ticks(&self) -> u64 {
+        self.rejected_ticks
+    }
+
     pub fn calculate_rsi(&self) -> Option<f64> {
         if self.gains.len() < self.period {
             return None;
@@ -72,6 +121,9 @@ impl RSIStrategy {
         let avg_loss: f64 = self.losses.iter().sum::<f64>() / self.period as f64;
 
         if avg_loss == 0.0 {
+            if avg_gain == 0.0 {
+                return Some(FLAT_RSI);
+            }
             return Some(100.0);
         }
 
@@ -83,35 +135,120 @@ impl RSIStrategy {
 
     pub fn get_signal(&self) -> Option<Side> {
         let rsi = self.calculate_rsi()?;
-
-        if rsi < self.oversold_threshold {
-            Some(Side::Buy)
-        } else if rsi > self.overbought_threshold {
-            Some(Side::Sell)
-        } else {
-            None
-        }
+        rsi_signal(rsi, self.overbought_threshold, self.oversold_threshold)
     }
 }
 
 impl OrderSplitStrategy for RSIStrategy {
     fn split(&self, parent_order: &ParentOrder) -> Vec<ChildOrder> {
-        let signal = self.get_signal();
-        if signal.is_none() {
-            return Vec::new();
+        split_on_signal(self.get_signal(), parent_order)
+    }
+}
+
+/// Largest absolute price `WilderRSIStrategy` accepts. Keeping inputs this far below
+/// `Decimal::MAX` (about 7.9e28) means the gain/loss sums and the Wilder products
+/// cannot overflow for any `u32` period, so `Rsi::update` never fails on accepted input.
+#[cfg(feature = "wilder-rsi")]
+const WILDER_MAX_PRICE: f64 = 1e15;
+
+/// RSI with Wilder smoothing (`avg = (avg * (period - 1) + x) / period` after an SMA
+/// seed), computed in `Decimal` by `fin_primitives::signals::indicators::Rsi`.
+/// Matches Wilder's book and TA-Lib. Same warm-up and signal rules as `RSIStrategy`.
+#[cfg(feature = "wilder-rsi")]
+pub struct WilderRSIStrategy {
+    rsi: Rsi,
+    prev_close: Option<Decimal>,
+    // Set once any close differs from the one before it. Until then the market is flat.
+    moved: bool,
+    value: Option<f64>,
+    overbought_threshold: f64,
+    oversold_threshold: f64,
+    rejected_ticks: u64,
+}
+
+#[cfg(feature = "wilder-rsi")]
+impl WilderRSIStrategy {
+    /// # Panics
+    /// Panics if `period` is 0 or does not fit in a `u32`.
+    pub fn new(period: usize, overbought_threshold: f64, oversold_threshold: f64) -> Self {
+        assert!(period > 0, "RSI period must be greater than 0");
+        assert!(
+            u32::try_from(period).is_ok(),
+            "RSI period must fit in a u32"
+        );
+        WilderRSIStrategy {
+            rsi: Rsi::new("rsi", period).expect("period checked above"),
+            prev_close: None,
+            moved: false,
+            value: None,
+            overbought_threshold,
+            oversold_threshold,
+            rejected_ticks: 0,
+        }
+    }
+
+    /// Adds a close. A price that is NaN, infinite, above `1e15` in absolute value, or
+    /// that `Rsi::update` rejects is skipped and counted in `rejected_ticks`; the
+    /// Wilder state carries on from the last good close.
+    pub fn add_price(&mut self, price: f64) {
+        let close = match Decimal::from_f64(price) {
+            Some(close) if price.is_finite() && price.abs() <= WILDER_MAX_PRICE => close,
+            _ => {
+                self.rejected_ticks += 1;
+                return;
+            }
+        };
+        let unchanged = self.prev_close == Some(close);
+        if self.prev_close.is_some() && !unchanged {
+            self.moved = true;
         }
 
-        match (signal.unwrap(), &parent_order.order_common.side) {
-            (Side::Buy, Side::Buy) | (Side::Sell, Side::Sell) => {
-                vec![ChildOrder {
-                    order_common: parent_order.order_common.clone(),
-                    strategy_id: parent_order.strategy_id.clone(),
-                    parent_id: parent_order.order_common.id.clone(),
-                    insert_at: Some(parent_order.order_common.timestamp),
-                }]
+        let result = self.rsi.update(&BarInput::from_close(close));
+        // `Rsi::update` records the close before any step that can fail.
+        self.prev_close = Some(close);
+        let value = match result {
+            Ok(value) => value.as_decimal().and_then(|v| v.to_f64()),
+            Err(_) => {
+                self.rejected_ticks += 1;
+                return;
             }
-            _ => Vec::new(),
-        }
+        };
+        let Some(value) = value else {
+            return;
+        };
+
+        self.value = if !self.moved {
+            // Both averages are zero: report neutral instead of `Rsi`'s 100.
+            Some(FLAT_RSI)
+        } else if unchanged && self.value.is_some() {
+            // A zero change scales both averages by (period - 1) / period, so the RSI
+            // is exactly the previous one. Holding it also stops a long flat run from
+            // rounding both Decimal averages down to the same smallest unit (RSI 50).
+            self.value
+        } else {
+            Some(value)
+        };
+    }
+
+    /// Number of prices skipped by `add_price`.
+    pub fn rejected_ticks(&self) -> u64 {
+        self.rejected_ticks
+    }
+
+    pub fn calculate_rsi(&self) -> Option<f64> {
+        self.value
+    }
+
+    pub fn get_signal(&self) -> Option<Side> {
+        let rsi = self.calculate_rsi()?;
+        rsi_signal(rsi, self.overbought_threshold, self.oversold_threshold)
+    }
+}
+
+#[cfg(feature = "wilder-rsi")]
+impl OrderSplitStrategy for WilderRSIStrategy {
+    fn split(&self, parent_order: &ParentOrder) -> Vec<ChildOrder> {
+        split_on_signal(self.get_signal(), parent_order)
     }
 }
 
@@ -316,5 +453,122 @@ mod tests {
 
         // 验证没有生成子订单
         assert_eq!(child_orders.len(), 0);
+    }
+
+    #[test]
+    fn test_flat_market_is_neutral() {
+        let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
+        for _ in 0..10 {
+            strategy.add_price(100.0);
+        }
+        assert_eq!(strategy.calculate_rsi(), Some(50.0));
+        assert!(strategy.get_signal().is_none());
+    }
+
+    #[test]
+    fn test_non_finite_prices_are_skipped() {
+        let mut strategy = RSIStrategy::new(5, 70.0, 30.0);
+        let mut clean = RSIStrategy::new(5, 70.0, 30.0);
+        for price in [100.0, 95.0, 90.0, 85.0, 80.0, 75.0] {
+            strategy.add_price(price);
+            clean.add_price(price);
+            strategy.add_price(f64::NAN);
+            strategy.add_price(f64::INFINITY);
+        }
+        assert_eq!(strategy.rejected_ticks(), 12);
+        assert_eq!(strategy.prices, clean.prices);
+        assert_eq!(strategy.calculate_rsi(), clean.calculate_rsi());
+        assert_eq!(strategy.get_signal(), Some(Side::Buy));
+    }
+
+    #[test]
+    #[should_panic(expected = "RSI period must be greater than 0")]
+    fn test_zero_period_panics() {
+        RSIStrategy::new(0, 70.0, 30.0);
+    }
+
+    // Wilder's 14-period example closes.
+    #[cfg(feature = "wilder-rsi")]
+    const WILDER_CLOSES: [f64; 20] = [
+        44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.10, 45.42, 45.84, 46.08, 45.89, 46.03, 45.61,
+        46.28, 46.28, 46.00, 46.03, 46.41, 46.22, 45.64,
+    ];
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    fn test_wilder_rsi_reference_values() {
+        // After the seed the values are smoothed, so the last RSI is 57.92
+        // (a simple average of the last 14 changes gives 59.81).
+        let mut strategy = WilderRSIStrategy::new(14, 70.0, 30.0);
+        for (i, close) in WILDER_CLOSES.iter().enumerate() {
+            strategy.add_price(*close);
+            if i < 14 {
+                assert!(strategy.calculate_rsi().is_none());
+            }
+            if i == 14 {
+                assert!((strategy.calculate_rsi().unwrap() - 70.46).abs() < 0.01);
+            }
+        }
+        assert!((strategy.calculate_rsi().unwrap() - 57.92).abs() < 0.01);
+    }
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    fn test_feature_does_not_change_rsi_strategy() {
+        let mut strategy = RSIStrategy::new(14, 70.0, 30.0);
+        for close in WILDER_CLOSES {
+            strategy.add_price(close);
+        }
+        assert!((strategy.calculate_rsi().unwrap() - 59.81).abs() < 0.01);
+    }
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    fn test_wilder_rsi_skips_bad_ticks() {
+        let mut strategy = WilderRSIStrategy::new(14, 70.0, 30.0);
+        for (i, close) in WILDER_CLOSES.iter().enumerate() {
+            strategy.add_price(*close);
+            if i == 16 {
+                strategy.add_price(f64::NAN);
+                strategy.add_price(f64::NEG_INFINITY);
+                strategy.add_price(1e30);
+                strategy.add_price(-1e16);
+            }
+        }
+        assert_eq!(strategy.rejected_ticks(), 4);
+        assert!((strategy.calculate_rsi().unwrap() - 57.92).abs() < 0.01);
+    }
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    fn test_wilder_rsi_flat_market_is_neutral() {
+        let mut strategy = WilderRSIStrategy::new(5, 70.0, 30.0);
+        for _ in 0..10 {
+            strategy.add_price(100.0);
+        }
+        assert_eq!(strategy.calculate_rsi(), Some(50.0));
+        assert!(strategy.get_signal().is_none());
+    }
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    fn test_wilder_rsi_holds_through_long_flat_run() {
+        let mut strategy = WilderRSIStrategy::new(14, 70.0, 30.0);
+        for close in WILDER_CLOSES {
+            strategy.add_price(close);
+        }
+        let before = strategy.calculate_rsi().unwrap();
+        // Long enough for both Decimal averages to round down to their smallest unit.
+        for _ in 0..2000 {
+            strategy.add_price(45.64);
+        }
+        assert_eq!(strategy.calculate_rsi(), Some(before));
+    }
+
+    #[cfg(feature = "wilder-rsi")]
+    #[test]
+    #[should_panic(expected = "RSI period must be greater than 0")]
+    fn test_wilder_rsi_zero_period_panics() {
+        WilderRSIStrategy::new(0, 70.0, 30.0);
     }
 }
